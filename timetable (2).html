@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Check Time Table</title>
+<style>
+  /* ============================================================
+     DESIGN TOKENS
+     ============================================================ */
+  :root{
+    --header-grad-start:#1596e8;
+    --header-grad-end:#12cf98;
+    --page-bg:#eef0f2;
+    --time-col-bg:#f7f7f8;
+    --grid-line:#e2e3e6;
+    --card-bg:#ffffff;
+    --card-border:#dcdde0;
+    --card-shadow:0 1px 3px rgba(20,20,30,0.10);
+    --card-shadow-hover:0 6px 16px rgba(20,20,30,0.16);
+    --ribbon-color:#1596e8;
+    --remove-color:#ef8b3c;
+    --text-main:#26282c;
+    --text-sub:#7a7d82;
+    --now-line:#e8443f;
+    --focus-ring:#1596e8;
+    --toolbar-bg:#ffffff;
+  }
+  html.dark{
+    --page-bg:#15171c;
+    --time-col-bg:#1b1d23;
+    --grid-line:#2b2e35;
+    --card-bg:#22252c;
+    --card-border:#33363e;
+    --card-shadow:0 1px 3px rgba(0,0,0,0.4);
+    --card-shadow-hover:0 6px 18px rgba(0,0,0,0.55);
+    --text-main:#eceef1;
+    --text-sub:#a2a5ab;
+    --toolbar-bg:#1b1d23;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;padding:0;height:100%;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--page-bg);
+    color:var(--text-main);
+    -webkit-font-smoothing:antialiased;
+  }
+
+  button{font-family:inherit;}
+  button:focus-visible, input:focus-visible, .class-card:focus-visible{
+    outline:3px solid var(--focus-ring);
+    outline-offset:2px;
+  }
+
+  /* ============================================================
+     HEADER
+     ============================================================ */
+  .app-header{
+    position:sticky;top:0;z-index:30;
+    height:60px;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:0 16px;
+    background:linear-gradient(90deg,var(--header-grad-start) 0%,var(--header-grad-end) 100%);
+    color:#fff;
+  }
+  .header-left{display:flex;align-items:center;gap:8px;min-width:0;}
+  .back-btn{
+    background:none;border:none;color:#fff;font-size:22px;line-height:1;
+    cursor:pointer;padding:4px 6px;border-radius:6px;
+  }
+  .back-btn:hover{background:rgba(255,255,255,0.15);}
+  .header-title{
+    font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .header-date{
+    font-size:14px;font-weight:500;opacity:0.95;white-space:nowrap;
+  }
+
+  /* ============================================================
+     TOOLBAR (extra features)
+     ============================================================ */
+  .toolbar{
+    position:sticky;top:60px;z-index:29;
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:8px 12px;
+    background:var(--toolbar-bg);
+    border-bottom:1px solid var(--grid-line);
+  }
+  .toolbar input[type="search"]{
+    flex:1 1 160px;min-width:120px;
+    padding:6px 10px;border-radius:6px;border:1px solid var(--card-border);
+    background:var(--card-bg);color:var(--text-main);font-size:13px;
+  }
+  .icon-btn{
+    background:var(--card-bg);border:1px solid var(--card-border);color:var(--text-main);
+    border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer;white-space:nowrap;
+  }
+  .icon-btn:hover{background:var(--page-bg);}
+
+  /* ============================================================
+     MAIN LAYOUT
+     ============================================================ */
+  .schedule-wrap{
+    display:flex;align-items:flex-start;
+    max-width:900px;margin:0 auto;
+    background:var(--card-bg);
+  }
+  .time-column{
+    position:sticky;left:0;z-index:10;
+    width:64px;flex:0 0 64px;
+    background:var(--time-col-bg);
+    border-right:1px solid var(--grid-line);
+    position:relative;
+  }
+  .time-label{
+    position:absolute;left:0;right:0;
+    padding-left:8px;
+    font-size:11px;color:var(--text-sub);
+    transform:translateY(-50%);
+    display:flex;align-items:center;gap:4px;
+  }
+  .time-label::after{
+    content:"";flex:1;height:1px;background:var(--grid-line);margin-right:0;
+  }
+
+  .timetable-area{
+    position:relative;flex:1 1 auto;min-width:0;
+    background:var(--card-bg);
+    /* NOTE: horizontal lines are NOT drawn via a fixed-interval CSS
+       background (that assumes every row is equal height). Every line
+       you see is a .grid-line element placed by the JS rendering
+       engine at the exact minute-based offset of its time marker, so
+       lines, timestamps, and cards can never drift apart even when
+       slot durations are irregular. */
+  }
+  .grid-line{
+    position:absolute;left:0;right:0;height:1px;background:var(--grid-line);
+  }
+
+  /* ============================================================
+     CLASS CARDS
+     ============================================================ */
+  .class-card{
+    position:absolute;
+    background:var(--card-bg);
+    border:1px solid var(--card-border);
+    border-left:4px solid var(--accent, #1596e8);
+    border-radius:6px;
+    box-shadow:var(--card-shadow);
+    padding:6px 8px;
+    overflow:hidden;
+    cursor:pointer;
+    transition:box-shadow 0.18s ease, transform 0.18s ease;
+  }
+  .class-card:hover, .class-card:focus-visible{
+    box-shadow:var(--card-shadow-hover);
+    transform:translateY(-1px);
+    z-index:5;
+  }
+  .class-card.dimmed{opacity:0.28;}
+
+  .card-ribbon{
+    position:absolute;top:0;right:0;
+    width:0;height:0;
+    border-style:solid;
+    border-width:0 18px 18px 0;
+    border-color:transparent var(--ribbon-color) transparent transparent;
+  }
+  .card-ribbon-icon{
+    position:absolute;top:1px;right:1px;
+    font-size:8px;font-weight:700;color:#fff;
+    font-family:Georgia,serif;font-style:italic;
+  }
+
+  .card-subject{
+    font-size:12.5px;font-weight:700;letter-spacing:0.2px;
+    margin:0 20px 2px 0;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .card-meta{
+    font-size:11px;color:var(--text-sub);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    line-height:1.4;
+  }
+  .card-notes{
+    font-size:10.5px;color:var(--text-sub);font-style:italic;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+
+  /* Card variants */
+  .class-card.card-break{
+    background:#fafbfc;
+    border-left-color:#c7cad0;
+    display:flex;align-items:center;justify-content:center;
+    padding-bottom:6px;
+  }
+  .class-card.card-break .card-subject{
+    margin:0;color:#7a7d82;letter-spacing:1px;font-size:12px;
+  }
+  html.dark .class-card.card-break{background:#2a2d34;border-left-color:#3a3d45;}
+  html.dark .class-card.card-break .card-subject{color:#a2a5ab;}
+
+  /* Empty slot: plain, blank block — no ribbon, no text, no accent border */
+  .class-card.card-empty{
+    border-left-color:var(--card-border);
+    padding:0;
+  }
+
+  /* current time indicator */
+  .now-line{
+    position:absolute;left:0;right:0;height:0;border-top:1.5px solid var(--now-line);
+    z-index:6;pointer-events:none;
+  }
+  .now-line::before{
+    content:"";position:absolute;left:-5px;top:-4px;
+    width:8px;height:8px;border-radius:50%;background:var(--now-line);
+  }
+
+  /* ============================================================
+     MODAL
+     ============================================================ */
+  .modal-backdrop{
+    position:fixed;inset:0;background:rgba(0,0,0,0.45);
+    display:flex;align-items:center;justify-content:center;
+    z-index:100;padding:16px;
+  }
+  .modal-backdrop[hidden]{display:none;}
+  .modal{
+    background:var(--card-bg);color:var(--text-main);
+    border-radius:10px;max-width:360px;width:100%;
+    padding:20px;box-shadow:0 12px 40px rgba(0,0,0,0.3);
+    position:relative;
+  }
+  .modal h2{margin:0 0 12px 0;font-size:16px;padding-right:24px;}
+  .modal dl{margin:0;font-size:13px;}
+  .modal dt{color:var(--text-sub);margin-top:8px;}
+  .modal dd{margin:0;font-weight:600;}
+  .modal-close{
+    position:absolute;top:12px;right:12px;
+    background:none;border:none;font-size:18px;cursor:pointer;color:var(--text-sub);
+  }
+
+  /* ============================================================
+     RESPONSIVE
+     ============================================================ */
+  @media (max-width:480px){
+    .header-title{font-size:15px;}
+    .header-date{font-size:12px;}
+    .time-column{width:50px;flex-basis:50px;}
+    .time-label{font-size:9.5px;padding-left:4px;}
+    .card-subject{font-size:11px;}
+    .card-meta,.card-notes{font-size:9.5px;}
+  }
+
+  /* ============================================================
+     PRINT
+     ============================================================ */
+  @media print{
+    .toolbar{display:none;}
+    .app-header{position:static;}
+    body{background:#fff;}
+  }
+
+  .visually-hidden{
+    position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;
+  }
+</style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header class="app-header">
+    <div class="header-left">
+      <button class="back-btn" id="backBtn" aria-label="Go back">&#8592;</button>
+      <span class="header-title" id="headerTitle"></span>
+    </div>
+    <span class="header-date" id="headerDate"></span>
+  </header>
+
+  <!-- TOOLBAR -->
+  <div class="toolbar" role="toolbar" aria-label="Timetable controls">
+    <label class="visually-hidden" for="searchInput">Search subject</label>
+    <input type="search" id="searchInput" placeholder="Search subject...">
+    <button class="icon-btn" id="darkModeBtn" aria-pressed="false">Dark mode</button>
+  </div>
+
+  <!-- MAIN SCHEDULE -->
+  <main class="schedule-wrap" id="scheduleWrap">
+    <div class="time-column" id="timeColumn" aria-hidden="true"></div>
+    <div class="timetable-area" id="timetableArea" role="list" aria-label="Class schedule"></div>
+  </main>
+
+  <!-- MODAL -->
+  <div class="modal-backdrop" id="modalBackdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <button class="modal-close" id="modalCloseBtn" aria-label="Close details">&times;</button>
+      <h2 id="modalTitle"></h2>
+      <dl>
+        <dt>Teacher</dt><dd id="modalTeacher"></dd>
+        <dt>Room</dt><dd id="modalRoom"></dd>
+        <dt>Time</dt><dd id="modalTime"></dd>
+        <dt>Notes</dt><dd id="modalNotes"></dd>
+      </dl>
+    </div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ============================================================
+     CONFIGURATION
+     Changing these values automatically updates the whole page.
+     ============================================================ */
+  const settings = {
+    title: "Check Time Table",
+    date: "Monday, 3 August 2026",
+    startHour: 8,      // 8:00 AM
+    endHour: 17.5,      // 5:30 PM
+    slotHeight: 90      // pixels per 60 minutes
+  };
+
+  /* Grid line positions are NOT a hand-maintained list (that was the
+     bug: a separate list could silently drift out of sync with the
+     actual slot boundaries). Instead computeTimeMarkers() derives
+     every horizontal grid line directly from the timetable data
+     itself, so the grid, the timestamps, and the cards can never
+     desynchronize — they are all reading the same numbers. */
+
+  /* ============================================================
+     DATA — nothing is hardcoded into the HTML. Every card below
+     is generated dynamically by renderTimetable().
+     ============================================================ */
+  let timetable = [
+    { id:1, start:"08:00", end:"09:00", subject:"", teacher:"", room:"", notes:"", color:"#E5E7EB", editable:true },
+    { id:2, start:"09:00", end:"10:00", subject:"", teacher:"", room:"", notes:"", color:"#E5E7EB", editable:true },
+    { id:3, start:"10:00", end:"11:00", subject:"CHM (THEORY)", teacher:"Jaspreet Kaur", room:"Room 201", color:"#1596e8", notes:"" },
+    { id:4, start:"11:00", end:"12:00", subject:"ICH (THEORY)", teacher:"Mehak Rohilla", room:"Lab 2",    color:"#00b894", notes:"" },
+    { id:5, start:"12:00", end:"13:00", type:"break", subject:"", color:"#E5E7EB" },
+    { id:6, start:"13:00", end:"14:00", subject:"", teacher:"", room:"", notes:"", color:"#E5E7EB", editable:true },
+    { id:7, start:"14:00", end:"15:00", subject:"ENG (THEORY)", teacher:"—", room:"—", color:"#ef8b3c", notes:"" },
+    { id:8, start:"15:00", end:"15:30", type:"break", subject:"", color:"#E5E7EB" },
+    { id:9, start:"15:30", end:"16:30", subject:"", teacher:"", room:"", notes:"", color:"#E5E7EB", editable:true },
+    { id:10, start:"16:30", end:"17:30", subject:"", teacher:"", room:"", notes:"", color:"#E5E7EB", editable:true }
+  ];
+  let nextId = 11;
+
+  /* ============================================================
+     ELEMENT REFERENCES
+     ============================================================ */
+  const timeColumnEl   = document.getElementById("timeColumn");
+  const timetableAreaEl= document.getElementById("timetableArea");
+  const headerTitleEl  = document.getElementById("headerTitle");
+  const headerDateEl   = document.getElementById("headerDate");
+  const searchInputEl  = document.getElementById("searchInput");
+  const darkModeBtn    = document.getElementById("darkModeBtn");
+  const modalBackdrop  = document.getElementById("modalBackdrop");
+  const modalCloseBtn  = document.getElementById("modalCloseBtn");
+  const modalTitle     = document.getElementById("modalTitle");
+  const modalTeacher   = document.getElementById("modalTeacher");
+  const modalRoom      = document.getElementById("modalRoom");
+  const modalTime      = document.getElementById("modalTime");
+  const modalNotes     = document.getElementById("modalNotes");
+
+  /* ------------------------------------------------------------
+     RENDERING ENGINE — variable-duration time slots
+     ------------------------------------------------------------
+     Everything below is expressed purely in "minutes from the
+     start of the visible day". No step assumes a fixed row height
+     or a fixed 60-minute interval, so slots of any length (30 min,
+     45 min, 90 min, whatever) render correctly with zero code
+     changes.
+
+     Reference point:  startHour  -> minute 0
+     Total span:        totalMinutes = endMinutes - startMinutes
+     Total pixel height: totalTimelineHeight (derived from
+                          settings.slotHeight, which defines how many
+                          pixels represent one hour — NOT one row)
+
+     For any absolute time T (in minutes from midnight):
+        minutesFromStart(T) = T - startMinutes
+        position(T) = (minutesFromStart(T) / totalMinutes) * totalTimelineHeight
+
+     Card height for a slot [start, end]:
+        height = ((end - start) / totalMinutes) * totalTimelineHeight
+     ---------------------------------------------------------- */
+  const startMinutes = settings.startHour * 60;
+  const endMinutes   = settings.endHour * 60;
+  const totalMinutes = endMinutes - startMinutes;          // e.g. 570
+  const pxPerHour    = settings.slotHeight;                 // px per 60 minutes
+  const totalTimelineHeight = (totalMinutes / 60) * pxPerHour;
+
+  let lastFocusedCard = null;
+
+  /* ============================================================
+     HELPERS
+     ============================================================ */
+  function toMinutes(hhmm){
+    const [h,m] = hhmm.split(":").map(Number);
+    return h * 60 + m;
+  }
+
+  function minutesToLabel(mins){
+    let h = Math.floor(mins / 60);
+    const m = mins % 60;
+    const period = h >= 12 ? "PM" : "AM";
+    let h12 = h % 12;
+    if (h12 === 0) h12 = 12;
+    return `${h12}:${String(m).padStart(2,"0")} ${period}`;
+  }
+
+  /* Single source of truth for ALL vertical positioning: grid
+     lines, class cards, and the current-time indicator all call
+     this same function so they can never fall out of sync. */
+  function positionFor(absoluteMinutes){
+    const minutesFromStart = absoluteMinutes - startMinutes;
+    return (minutesFromStart / totalMinutes) * totalTimelineHeight;
+  }
+
+  /* Height of a slot is likewise derived purely from its own
+     duration relative to the full day — not from a row count. */
+  function heightFor(startAbsMinutes, endAbsMinutes){
+    const durationMinutes = endAbsMinutes - startAbsMinutes;
+    return (durationMinutes / totalMinutes) * totalTimelineHeight;
+  }
+
+  /* Assigns side-by-side lanes to overlapping events so classes that
+     share a time slot render as columns instead of stacking on top
+     of one another. */
+  function assignLanes(events){
+    const sorted = [...events].sort((a,b) => toMinutes(a.start) - toMinutes(b.start));
+    const laneEnds = [];
+    sorted.forEach(ev => {
+      const s = toMinutes(ev.start), e = toMinutes(ev.end);
+      let lane = laneEnds.findIndex(end => end <= s);
+      if (lane === -1){ lane = laneEnds.length; laneEnds.push(e); }
+      else { laneEnds[lane] = e; }
+      ev._lane = lane;
+    });
+    const totalLanes = laneEnds.length || 1;
+    sorted.forEach(ev => ev._totalLanes = totalLanes);
+    return sorted;
+  }
+
+  /* ============================================================
+     GRID MARKERS — the single source of truth for every horizontal
+     line, timestamp, and card boundary. Built from the actual
+     timetable data (plus the day's start/end bounds), so nothing can
+     ever drift out of sync with what's actually on the schedule.
+     ============================================================ */
+  function computeTimeMarkers(){
+    const minutesSet = new Set([startMinutes, endMinutes]);
+    timetable.forEach(ev => {
+      minutesSet.add(toMinutes(ev.start));
+      minutesSet.add(toMinutes(ev.end));
+    });
+    return Array.from(minutesSet).sort((a, b) => a - b);
+  }
+
+  /* ============================================================
+     RENDER: HEADER
+     ============================================================ */
+  function renderHeader(){
+    headerTitleEl.textContent = settings.title;
+    headerDateEl.textContent = settings.date;
+    document.title = settings.title;
+  }
+
+  /* ============================================================
+     RENDER: TIME COLUMN
+     The grid (not the cards) owns every row height. These labels
+     are placed at the exact same minute-based positions as the
+     grid lines and the cards below, computed by computeTimeMarkers().
+     ============================================================ */
+  function renderTimeColumn(){
+    timeColumnEl.style.height = totalTimelineHeight + "px";
+    timeColumnEl.innerHTML = "";
+    computeTimeMarkers().forEach(mins => {
+      const label = document.createElement("div");
+      label.className = "time-label";
+      label.style.top = positionFor(mins) + "px";
+      label.textContent = minutesToLabel(mins);
+      timeColumnEl.appendChild(label);
+    });
+  }
+
+  /* ============================================================
+     RENDER: GRID LINES
+     ============================================================ */
+  function renderGridLines(){
+    computeTimeMarkers().forEach(mins => {
+      const line = document.createElement("div");
+      line.className = "grid-line";
+      line.style.top = positionFor(mins) + "px";
+      timetableAreaEl.appendChild(line);
+    });
+  }
+
+  /* ============================================================
+     RENDER: CLASS CARDS
+     The grid defines every row height; cards are only ever placed
+     inside it using the same positionFor()/heightFor() the grid
+     lines use — a card never determines row height itself.
+     ============================================================ */
+  function renderTimetable(){
+    timetableAreaEl.innerHTML = "";
+    timetableAreaEl.style.height = totalTimelineHeight + "px";
+
+    renderGridLines();
+
+    const laned = assignLanes(timetable);
+    const gutter = 4;
+
+    laned.forEach(ev => {
+      const s = toMinutes(ev.start), e = toMinutes(ev.end);
+      const card = document.createElement("div");
+      card.className = "class-card";
+      card.tabIndex = 0;
+      card.dataset.id = ev.id;
+      card.dataset.subject = (ev.subject || "").toLowerCase();
+      card.setAttribute("role","listitem");
+      card.setAttribute("aria-label",
+        `${ev.type === "break" ? "Break" : (ev.subject || "Free period")}, ${minutesToLabel(s)} to ${minutesToLabel(e)}`);
+      card.style.setProperty("--accent", ev.color || "#e5e7eb");
+      // Top and height come only from this slot's own start/end
+      // minutes, using the exact same formula as the grid lines —
+      // a card always starts and ends precisely on its time lines.
+      card.style.top = positionFor(s) + "px";
+      card.style.height = heightFor(s, e) + "px";
+      card.style.width = `calc(${100 / ev._totalLanes}% - ${gutter}px)`;
+      card.style.left = `calc(${(ev._lane * 100) / ev._totalLanes}% + ${gutter/2}px)`;
+
+      if (ev.type === "break"){
+        // Break: centered "BREAK" label only. Nothing else.
+        card.classList.add("card-break");
+        card.innerHTML = `<p class="card-subject">${ev.subject}</p>`;
+      } else if (!ev.subject){
+        // Empty slot: a clean, blank card. No text, no icons, no hints.
+        card.classList.add("card-empty");
+        card.innerHTML = "";
+      } else {
+        card.innerHTML = `
+          <span class="card-ribbon" aria-hidden="true"></span>
+          <span class="card-ribbon-icon" aria-hidden="true">i</span>
+          <p class="card-subject">${ev.subject}</p>
+          ${ev.teacher ? `<p class="card-meta">${ev.teacher}</p>` : ""}
+          ${ev.room ? `<p class="card-meta">${ev.room}</p>` : ""}
+          <p class="card-meta">Time: ${ev.start}-${ev.end}</p>
+          ${ev.notes ? `<p class="card-notes">${ev.notes}</p>` : ""}
+        `;
+      }
+
+      card.addEventListener("click", () => openModal(ev, card));
+      card.addEventListener("keydown", (evt) => {
+        if (evt.key === "Enter" || evt.key === " "){
+          evt.preventDefault();
+          openModal(ev, card);
+        }
+      });
+
+      timetableAreaEl.appendChild(card);
+    });
+
+    renderCurrentTime();
+    applySearchFilter(searchInputEl.value);
+  }
+
+  /* ============================================================
+     DATA MUTATION FUNCTIONS
+     ============================================================ */
+  function addClass(entry){
+    timetable.push({ id: nextId++, ...entry });
+    renderTimetable();
+  }
+
+  function removeClass(id){
+    timetable = timetable.filter(ev => ev.id !== id);
+    renderTimetable();
+  }
+
+  function updateClass(id, changes){
+    timetable = timetable.map(ev => ev.id === id ? { ...ev, ...changes } : ev);
+    renderTimetable();
+  }
+
+  function changeDate(newDateLabel){
+    settings.date = newDateLabel;
+    renderHeader();
+  }
+
+  /* ============================================================
+     CURRENT TIME INDICATOR
+     ============================================================ */
+  function renderCurrentTime(){
+    const existing = timetableAreaEl.querySelector(".now-line");
+    if (existing) existing.remove();
+
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    if (nowMinutes < startMinutes || nowMinutes > endMinutes) return;
+
+    const line = document.createElement("div");
+    line.className = "now-line";
+    line.style.top = positionFor(nowMinutes) + "px";
+    timetableAreaEl.appendChild(line);
+  }
+
+  /* ============================================================
+     MODAL
+     ============================================================ */
+  function openModal(ev, triggerEl){
+    lastFocusedCard = triggerEl;
+    modalTitle.textContent = ev.subject;
+    modalTeacher.textContent = ev.teacher || "—";
+    modalRoom.textContent = ev.room || "—";
+    modalTime.textContent = `${ev.start} - ${ev.end}`;
+    modalNotes.textContent = ev.notes || "—";
+    modalBackdrop.hidden = false;
+    modalCloseBtn.focus();
+  }
+
+  function closeModal(){
+    modalBackdrop.hidden = true;
+    if (lastFocusedCard) lastFocusedCard.focus();
+  }
+
+  modalCloseBtn.addEventListener("click", closeModal);
+  modalBackdrop.addEventListener("click", (e) => { if (e.target === modalBackdrop) closeModal(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !modalBackdrop.hidden) closeModal();
+  });
+
+  /* ============================================================
+     SEARCH
+     ============================================================ */
+  function applySearchFilter(query){
+    const q = query.trim().toLowerCase();
+    document.querySelectorAll(".class-card").forEach(card => {
+      const matches = !q || card.dataset.subject.includes(q);
+      card.classList.toggle("dimmed", !matches);
+    });
+  }
+  searchInputEl.addEventListener("input", (e) => applySearchFilter(e.target.value));
+
+  /* ============================================================
+     DARK MODE
+     ============================================================ */
+  darkModeBtn.addEventListener("click", () => {
+    const isDark = document.documentElement.classList.toggle("dark");
+    darkModeBtn.setAttribute("aria-pressed", String(isDark));
+    darkModeBtn.textContent = isDark ? "Light mode" : "Dark mode";
+  });
+
+  /* ============================================================
+     BACK BUTTON
+     ============================================================ */
+  document.getElementById("backBtn").addEventListener("click", () => {
+    if (window.history.length > 1) window.history.back();
+  });
+
+  /* ============================================================
+     INIT
+     ============================================================ */
+  renderHeader();
+  renderTimeColumn();
+  renderTimetable();
+  setInterval(renderCurrentTime, 60 * 1000);
+
+  /* Expose core functions for console / external use, per spec. */
+  window.timetableApp = { addClass, removeClass, updateClass, changeDate, renderTimetable };
+
+})();
+</script>
+</body>
+</html>
